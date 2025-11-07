@@ -2,6 +2,8 @@
 #include <iomanip>
 #include <cassert>
 #include <algorithm>
+#include <utility>
+#include <stdexcept>
 
 // основной шаблон для n-мерной сетки
 template <typename T, size_t N = 2>
@@ -20,23 +22,46 @@ private:
     size_type y_size, x_size;
 
 public:
-    // конструкторы
+    // конструкторы 
     Grid(T const &t) : y_size(1), x_size(1) {
         data = new T[1];
-        data[0] = t;
+        try {
+            data[0] = t;
+        } catch (...) {
+            delete[] data;
+            throw;
+        }
     }
 
     Grid(size_type y_size, size_type x_size) : y_size(y_size), x_size(x_size) {
+        if (y_size == 0 || x_size == 0) {
+            throw std::invalid_argument("размеры сетки не могут быть нулевыми");
+        }
+        
         data = new T[y_size * x_size];
-        for (size_type i = 0; i < y_size * x_size; ++i) {
-            data[i] = T();
+        try {
+            for (size_type i = 0; i < y_size * x_size; ++i) {
+                data[i] = T();
+            }
+        } catch (...) {
+            delete[] data;
+            throw;
         }
     }
 
     Grid(size_type y_size, size_type x_size, T const &t) : y_size(y_size), x_size(x_size) {
+        if (y_size == 0 || x_size == 0) {
+            throw std::invalid_argument("размеры сетки не могут быть нулевыми");
+        }
+        
         data = new T[y_size * x_size];
-        for (size_type i = 0; i < y_size * x_size; ++i) {
-            data[i] = t;
+        try {
+            for (size_type i = 0; i < y_size * x_size; ++i) {
+                data[i] = t;
+            }
+        } catch (...) {
+            delete[] data;
+            throw;
         }
     }
 
@@ -50,56 +75,75 @@ public:
     // 2. конструктор копирования
     Grid(Grid const &other) : y_size(other.y_size), x_size(other.x_size) {
         data = new T[y_size * x_size];
-        for (size_type i = 0; i < y_size * x_size; ++i) {
-            data[i] = other.data[i];
+        try {
+            for (size_type i = 0; i < y_size * x_size; ++i) {
+                data[i] = other.data[i];
+            }
+        } catch (...) {
+            delete[] data;
+            throw;
         }
     }
 
     // 3. оператор присваивания копированием
     Grid& operator=(Grid const &other) {
         if (this != &other) {
+            T* new_data = new T[other.y_size * other.x_size];
+            try {
+                for (size_type i = 0; i < other.y_size * other.x_size; ++i) {
+                    new_data[i] = other.data[i];
+                }
+            } catch (...) {
+                delete[] new_data;
+                throw;
+            }
+            
             delete[] data;
+            data = new_data;
             y_size = other.y_size;
             x_size = other.x_size;
-            data = new T[y_size * x_size];
-            for (size_type i = 0; i < y_size * x_size; ++i) {
-                data[i] = other.data[i];
-            }
         }
         return *this;
     }
 
     // 4. конструктор перемещения
-    Grid(Grid &&other) noexcept : data(other.data), y_size(other.y_size), x_size(other.x_size) {
-        other.data = nullptr;
-        other.y_size = 0;
-        other.x_size = 0;
-    }
+    Grid(Grid &&other) noexcept 
+        : data(std::exchange(other.data, nullptr)), 
+          y_size(std::exchange(other.y_size, 0)), 
+          x_size(std::exchange(other.x_size, 0)) {}
 
     // 5. оператор присваивания перемещением
     Grid& operator=(Grid &&other) noexcept {
         if (this != &other) {
-            delete[] data;
-            data = other.data;
-            y_size = other.y_size;
-            x_size = other.x_size;
-            other.data = nullptr;
-            other.y_size = 0;
-            other.x_size = 0;
+            Grid temp(std::move(other));
+            swap(temp);
         }
         return *this;
     }
 
-    // операторы доступа
-    T operator()(size_type y_idx, size_type x_idx) const {
-        return data[y_idx * x_size + x_idx];
+    // теперь тут swap
+    void swap(Grid& other) noexcept {
+        std::swap(data, other.data);
+        std::swap(y_size, other.y_size);
+        std::swap(x_size, other.x_size);
     }
+
+    // операторы доступа 
+    T const& operator()(size_type y_idx, size_type x_idx) const {
+        if (y_idx >= y_size || x_idx >= x_size) {
+            throw std::out_of_range("индексы выходят за границы сетки");
+        }
+        return data[y_idx * x_size + x_idx];
+    }   
 
     T& operator()(size_type y_idx, size_type x_idx) {
+        if (y_idx >= y_size || x_idx >= x_size) {
+            throw std::out_of_range("индексы выходят за границы сетки");
+        }
         return data[y_idx * x_size + x_idx];
     }
 
-    // оператор присваивания значения
+    // оператор присваивания 
     Grid& operator=(T const &t) {
         for (auto it = data, end = data + x_size * y_size; it != end; ++it) {
             *it = t;
@@ -107,7 +151,7 @@ public:
         return *this;
     }
 
-    // ге отееры
+    // геттеры
     size_type get_y_size() const { return y_size; }
     size_type get_x_size() const { return x_size; }
 
@@ -119,6 +163,9 @@ public:
     public:
         RowProxy(Grid& grid, size_type y_idx) : grid(grid), y_idx(y_idx) {}
         T& operator[](size_type x_idx) {
+            if (x_idx >= grid.x_size) {
+                throw std::out_of_range("индекс столбца выходит за границы");
+            }
             return grid.data[y_idx * grid.x_size + x_idx];
         }
     };
@@ -129,22 +176,30 @@ public:
         size_type y_idx;
     public:
         ConstRowProxy(const Grid& grid, size_type y_idx) : grid(grid), y_idx(y_idx) {}
-        T operator[](size_type x_idx) const {
+        T const& operator[](size_type x_idx) const {
+            if (x_idx >= grid.x_size) {
+                throw std::out_of_range("индекс столбца выходит за границы");
+            }
             return grid.data[y_idx * grid.x_size + x_idx];
         }
     };
 
     RowProxy operator[](size_type y_idx) {
+        if (y_idx >= y_size) {
+            throw std::out_of_range("индекс строки выходит за границы");
+        }
         return RowProxy(*this, y_idx);
     }
 
     ConstRowProxy operator[](size_type y_idx) const {
+        if (y_idx >= y_size) {
+            throw std::out_of_range("индекс строки выходит за границы");
+        }
         return ConstRowProxy(*this, y_idx);
     }
 };
 
 // задание 3
-
 
 // специализация для 1d сетки
 template <typename T>
@@ -158,28 +213,50 @@ private:
     size_type size;
 
 public:
-    // конструкторы
+    // конструкторы с обработкой исключений
     Grid(T const &t) : size(1) {
         data = new T[1];
-        data[0] = t;
+        try {
+            data[0] = t;
+        } catch (...) {
+            delete[] data;
+            throw;
+        }
     }
 
     Grid(size_type size) : size(size) {
+        if (size == 0) {
+            throw std::invalid_argument("размер сетки не может быть нулевым");
+        }
+        
         data = new T[size];
-        for (size_type i = 0; i < size; ++i) {
-            data[i] = T();
+        try {
+            for (size_type i = 0; i < size; ++i) {
+                data[i] = T();
+            }
+        } catch (...) {
+            delete[] data;
+            throw;
         }
     }
 
     Grid(size_type size, T const &t) : size(size) {
+        if (size == 0) {
+            throw std::invalid_argument("размер сетки не может быть нулевым");
+        }
+        
         data = new T[size];
-        for (size_type i = 0; i < size; ++i) {
-            data[i] = t;
+        try {
+            for (size_type i = 0; i < size; ++i) {
+                data[i] = t;
+            }
+        } catch (...) {
+            delete[] data;
+            throw;
         }
     }
 
     // правило пяти
-
 
     // 1. деструктор
     ~Grid() {
@@ -189,56 +266,81 @@ public:
     // 2. конструктор копирования
     Grid(Grid const &other) : size(other.size) {
         data = new T[size];
-        for (size_type i = 0; i < size; ++i) {
-            data[i] = other.data[i];
+        try {
+            for (size_type i = 0; i < size; ++i) {
+                data[i] = other.data[i];
+            }
+        } catch (...) {
+            delete[] data;
+            throw;
         }
     }
 
     // 3. оператор присваивания копированием
     Grid& operator=(Grid const &other) {
         if (this != &other) {
-            delete[] data;
-            size = other.size;
-            data = new T[size];
-            for (size_type i = 0; i < size; ++i) {
-                data[i] = other.data[i];
+            T* new_data = new T[other.size];
+            try {
+                for (size_type i = 0; i < other.size; ++i) {
+                    new_data[i] = other.data[i];
+                }
+            } catch (...) {
+                delete[] new_data;
+                throw;
             }
+            
+            delete[] data;
+            data = new_data;
+            size = other.size;
         }
         return *this;
     }
 
     // 4. конструктор перемещения
-    Grid(Grid &&other) noexcept : data(other.data), size(other.size) {
-        other.data = nullptr;
-        other.size = 0;
-    }
+    Grid(Grid &&other) noexcept 
+        : data(std::exchange(other.data, nullptr)), 
+          size(std::exchange(other.size, 0)) {}
 
     // 5. оператор присваивания перемещением
     Grid& operator=(Grid &&other) noexcept {
         if (this != &other) {
-            delete[] data;
-            data = other.data;
-            size = other.size;
-            other.data = nullptr;
-            other.size = 0;
+            Grid temp(std::move(other));
+            swap(temp);
         }
         return *this;
     }
 
-    // операторы доступа
-    T operator()(size_type i) const {
+    void swap(Grid& other) noexcept {
+        std::swap(data, other.data);
+        std::swap(size, other.size);
+    }
+
+    // операторы доступа с проверкой границ
+    T const& operator()(size_type i) const {
+        if (i >= size) {
+            throw std::out_of_range("индекс выходит за границы сетки");
+        }
         return data[i];
     }
 
     T& operator()(size_type i) {
+        if (i >= size) {
+            throw std::out_of_range("индекс выходит за границы сетки");
+        }
         return data[i];
     }
 
-    T operator[](size_type i) const {
+    T const& operator[](size_type i) const {
+        if (i >= size) {
+            throw std::out_of_range("индекс выходит за границы сетки");
+        }
         return data[i];
     }
 
     T& operator[](size_type i) {
+        if (i >= size) {
+            throw std::out_of_range("индекс выходит за границы сетки");
+        }
         return data[i];
     }
 
@@ -266,26 +368,42 @@ private:
     size_type z_size, y_size, x_size;
 
 public:
-    // конструкторы
+    // конструкторы с обработкой исключений
     Grid(size_type z_size, size_type y_size, size_type x_size) 
         : z_size(z_size), y_size(y_size), x_size(x_size) {
+        if (z_size == 0 || y_size == 0 || x_size == 0) {
+            throw std::invalid_argument("размеры сетки не могут быть нулевыми");
+        }
+        
         data = new T[z_size * y_size * x_size];
-        for (size_type i = 0; i < z_size * y_size * x_size; ++i) {
-            data[i] = T();
+        try {
+            for (size_type i = 0; i < z_size * y_size * x_size; ++i) {
+                data[i] = T();
+            }
+        } catch (...) {
+            delete[] data;
+            throw;
         }
     }
 
     Grid(size_type z_size, size_type y_size, size_type x_size, T const &t) 
         : z_size(z_size), y_size(y_size), x_size(x_size) {
+        if (z_size == 0 || y_size == 0 || x_size == 0) {
+            throw std::invalid_argument("размеры сетки не могут быть нулевыми");
+        }
+        
         data = new T[z_size * y_size * x_size];
-        for (size_type i = 0; i < z_size * y_size * x_size; ++i) {
-            data[i] = t;
+        try {
+            for (size_type i = 0; i < z_size * y_size * x_size; ++i) {
+                data[i] = t;
+            }
+        } catch (...) {
+            delete[] data;
+            throw;
         }
     }
 
     // правило пяти
-
-
 
     // 1. деструктор
     ~Grid() {
@@ -296,57 +414,73 @@ public:
     Grid(Grid const &other) 
         : z_size(other.z_size), y_size(other.y_size), x_size(other.x_size) {
         data = new T[z_size * y_size * x_size];
-        for (size_type i = 0; i < z_size * y_size * x_size; ++i) {
-            data[i] = other.data[i];
+        try {
+            for (size_type i = 0; i < z_size * y_size * x_size; ++i) {
+                data[i] = other.data[i];
+            }
+        } catch (...) {
+            delete[] data;
+            throw;
         }
     }
 
     // 3. оператор присваивания копированием
     Grid& operator=(Grid const &other) {
         if (this != &other) {
+            T* new_data = new T[other.z_size * other.y_size * other.x_size];
+            try {
+                for (size_type i = 0; i < other.z_size * other.y_size * other.x_size; ++i) {
+                    new_data[i] = other.data[i];
+                }
+            } catch (...) {
+                delete[] new_data;
+                throw;
+            }
+            
             delete[] data;
+            data = new_data;
             z_size = other.z_size;
             y_size = other.y_size;
             x_size = other.x_size;
-            data = new T[z_size * y_size * x_size];
-            for (size_type i = 0; i < z_size * y_size * x_size; ++i) {
-                data[i] = other.data[i];
-            }
         }
         return *this;
     }
 
     // 4. конструктор перемещения
     Grid(Grid &&other) noexcept 
-        : data(other.data), z_size(other.z_size), y_size(other.y_size), x_size(other.x_size) {
-        other.data = nullptr;
-        other.z_size = 0;
-        other.y_size = 0;
-        other.x_size = 0;
-    }
+        : data(std::exchange(other.data, nullptr)),
+          z_size(std::exchange(other.z_size, 0)),
+          y_size(std::exchange(other.y_size, 0)),
+          x_size(std::exchange(other.x_size, 0)) {}
 
     // 5. оператор присваивания перемещением
     Grid& operator=(Grid &&other) noexcept {
         if (this != &other) {
-            delete[] data;
-            data = other.data;
-            z_size = other.z_size;
-            y_size = other.y_size;
-            x_size = other.x_size;
-            other.data = nullptr;
-            other.z_size = 0;
-            other.y_size = 0;
-            other.x_size = 0;
+            Grid temp(std::move(other));
+            swap(temp);
         }
         return *this;
     }
 
-    // операторы доступа
-    T operator()(size_type z_idx, size_type y_idx, size_type x_idx) const {
+    void swap(Grid& other) noexcept {
+        std::swap(data, other.data);
+        std::swap(z_size, other.z_size);
+        std::swap(y_size, other.y_size);
+        std::swap(x_size, other.x_size);
+    }
+
+    // операторы доступа с проверкой границ
+    T const& operator()(size_type z_idx, size_type y_idx, size_type x_idx) const {
+        if (z_idx >= z_size || y_idx >= y_size || x_idx >= x_size) {
+            throw std::out_of_range("индексы выходят за границы сетки");
+        }
         return data[z_idx * y_size * x_size + y_idx * x_size + x_idx];
     }
 
     T& operator()(size_type z_idx, size_type y_idx, size_type x_idx) {
+        if (z_idx >= z_size || y_idx >= y_size || x_idx >= x_size) {
+            throw std::out_of_range("индексы выходят за границы сетки");
+        }
         return data[z_idx * y_size * x_size + y_idx * x_size + x_idx];
     }
 
@@ -358,13 +492,17 @@ public:
         return *this;
     }
 
-    // гетте ры
+    // геттеры
     size_type get_z_size() const { return z_size; }
     size_type get_y_size() const { return y_size; }
     size_type get_x_size() const { return x_size; }
 
     // оператор индексирования для 3d сетки
     Grid<T, 2> operator[](size_type z_idx) const {
+        if (z_idx >= z_size) {
+            throw std::out_of_range("индекс z выходит за границы");
+        }
+        
         Grid<T, 2> slice(y_size, x_size);
         for (size_type y = 0; y < y_size; ++y) {
             for (size_type x = 0; x < x_size; ++x) {
@@ -391,65 +529,71 @@ void print_grid(const Grid<T, 2>& grid, const std::string& name = "Grid") {
 }
 
 int main() {
-    std::cout << "проверка задания 1" << std::endl;
-    
-    // разные сетки
-    Grid<int, 2> small(5);  // 1x1 с числом 5
-    print_grid(small, "одинарная сетка");
-    
-    Grid<int, 2> empty(3, 2);  // 3x2 с нулями
-    print_grid(empty, "пустая ");
-    
-    Grid<float, 2> filled(2, 3, 4242.42f);  // 2x3 
-    print_grid(filled, "заполненная");
-    
-    Grid<int, 2> matrix(3, 3);
-    
-    int counter = 1;
-    for (unsigned y = 0; y < matrix.get_y_size(); ++y) {
-        for (unsigned x = 0; x < matrix.get_x_size(); ++x) {
-            matrix(y, x) = counter++;
+    try {
+        std::cout << "проверка задания 1" << std::endl;
+        
+        // разные сетки
+        Grid<int, 2> small(5);
+        print_grid(small, "одинарная сетка");
+        
+        Grid<int, 2> empty(3, 2);
+        print_grid(empty, "пустая ");
+        
+        Grid<float, 2> filled(2, 3, 4242.42f);
+        print_grid(filled, "заполненная");
+        
+        Grid<int, 2> matrix(3, 3);
+        
+        int counter = 1;
+        for (unsigned y = 0; y < matrix.get_y_size(); ++y) {
+            for (unsigned x = 0; x < matrix.get_x_size(); ++x) {
+                matrix(y, x) = counter++;
+            }
         }
+        
+        print_grid(matrix);
+        
+        // массовое присваивание
+        Grid<char, 2> char_grid(2, 4, 'E');
+        print_grid(char_grid, "сетка символов");
+        char_grid = 'Z'; 
+        print_grid(char_grid,"после массового присваивания");
+
+        std::cout << "проверка задания 2" << std::endl;
+        
+        Grid<float> g(3, 2, 0.0f);
+        assert(3 == g.get_y_size());
+        assert(2 == g.get_x_size());
+
+        using gsize_t = Grid<float>::size_type;
+
+        for (gsize_t y_idx = 0; y_idx != g.get_y_size(); ++y_idx)
+            for (gsize_t x_idx = 0; x_idx != g.get_x_size(); ++x_idx)
+                assert(0.0f == g[y_idx][x_idx]);
+
+        for (gsize_t y_idx = 0; y_idx != g.get_y_size(); ++y_idx)
+            for (gsize_t x_idx = 0; x_idx != g.get_x_size(); ++x_idx)
+                g[y_idx][x_idx] = 1.0f;
+
+        for (gsize_t y_idx = 0; y_idx != g.get_y_size(); ++y_idx)
+            for (gsize_t x_idx = 0; x_idx != g.get_x_size(); ++x_idx)
+                assert(1.0f == g(y_idx, x_idx));
+
+        std::cout << "проверка задания 3" << std::endl;
+        
+        Grid<float, 3> const g3(2, 3, 4, 1.0f);
+        assert(1.0f == g3(1, 1, 1));
+
+        Grid<float, 2> g2(2, 5, 2.0f);
+        assert(2.0f == g2(1, 1));
+
+        g2 = g3[1];
+        assert(1.0f == g2(1, 1));
+
+    } catch (const std::exception& e) {
+        std::cerr << "ошибка: " << e.what() << std::endl;
+        return 1;
     }
-    
-    print_grid(matrix);
-    
-    // массовое присваивание
-    Grid<char, 2> char_grid(2, 4, 'E');
-    print_grid(char_grid, "сетка символов");
-    char_grid = 'Z'; 
-    print_grid(char_grid,"после массового присваивания");
-
-    std::cout << "проверка задания 2" << std::endl;
-    
-    Grid<float> g(3, 2, 0.0f);
-    assert(3 == g.get_y_size());
-    assert(2 == g.get_x_size());
-
-    using gsize_t = Grid<float>::size_type;
-
-    for (gsize_t y_idx = 0; y_idx != g.get_y_size(); ++y_idx)
-        for (gsize_t x_idx = 0; x_idx != g.get_x_size(); ++x_idx)
-            assert(0.0f == g[y_idx][x_idx]);
-
-    for (gsize_t y_idx = 0; y_idx != g.get_y_size(); ++y_idx)
-        for (gsize_t x_idx = 0; x_idx != g.get_x_size(); ++x_idx)
-            g[y_idx][x_idx] = 1.0f;
-
-    for (gsize_t y_idx = 0; y_idx != g.get_y_size(); ++y_idx)
-        for (gsize_t x_idx = 0; x_idx != g.get_x_size(); ++x_idx)
-            assert(1.0f == g(y_idx, x_idx));
-
-    std::cout << "проверка задания 3" << std::endl;
-    
-    Grid<float, 3> const g3(2, 3, 4, 1.0f);
-    assert(1.0f == g3(1, 1, 1));
-
-    Grid<float, 2> g2(2, 5, 2.0f);
-    assert(2.0f == g2(1, 1));
-
-    g2 = g3[1];
-    assert(1.0f == g2(1, 1));
 
     return 0;
 }
